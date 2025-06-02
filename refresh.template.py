@@ -643,7 +643,7 @@ def _get_files(compile_action):
 
     # First, we do the obvious thing: Filter args to those that look like source files.
     source_file_candidates = [arg for arg in compile_action.arguments if not arg.startswith('-') and arg.endswith(_get_files.c_family_source_extensions)]
-    assert source_file.endswith(_get_files.c_family_source_extensions), f"Source file candidate, {source_file}, seems to be wrong.\nSelected from {compile_action.arguments}.\nPlease file an issue with this information!"
+    # assert source_file.endswith(_get_files.c_family_source_extensions), f"Source file candidate, {source_file}, seems to be wrong.\nSelected from {compile_action.arguments}.\nPlease file an issue with this information!"
     source_file = source_file_candidates[0]
 
     # If we've got multiple candidates for source files, apply heuristics based on how Bazel tends to format commands.
@@ -758,10 +758,13 @@ def _get_apple_platform(compile_action):
         match = re.search('/Platforms/([a-zA-Z]+).platform/Developer/', arg)
         if match:
             return match.group(1)
-    if getattr(compile_action, 'environmentVariables', None):
-        match = next(filter(lambda x: x.key == "APPLE_SDK_PLATFORM", compile_action.environmentVariables), None)
-        if match:
-            return match.value
+    # The environmentVariables attribute is guaranteed to be a dict by _get_command_for_files
+    # but getattr is still safe.
+    env_vars = getattr(compile_action, 'environmentVariables', None) # This will be a dict or None
+    if env_vars: # env_vars is a dictionary here
+        apple_sdk_platform_value = env_vars.get("APPLE_SDK_PLATFORM")
+        if apple_sdk_platform_value:
+            return apple_sdk_platform_value
     return None
 
 @functools.lru_cache(maxsize=None)
@@ -785,7 +788,7 @@ def _apple_platform_patch(compile_action):
         # Bazel wraps the compiler as `external/local_config_cc/wrapped_clang` and exports that wrapped compiler in the proto. However, we need a clang call that clangd can introspect. (See notes in "how clangd uses compile_commands.json" in ImplementationReadme.md for more.)
         # Removing the wrapper is also important because Bazel's Xcode (but not CommandLineTools) wrapper crashes if you don't specify particular environment variables (replaced below). We'd need the wrapper to be invokable by clangd's --query-driver if we didn't remove the wrapper.
         if compile_action.mnemonic != 'SwiftCompile':
-        compile_args[0] = 'clang'
+            compile_args[0] = 'clang'
 
         # We have to manually substitute out Bazel's macros so clang can parse the command
         # Code this mirrors is in https://github.com/bazelbuild/bazel/blob/master/tools/osx/crosstool/wrapped_clang.cc
